@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Explosions</title>
+
+    <!-- Open Graph Tags -->
+    <meta property="og:title" content="Explosions Interface">
+    <meta property="og:description"
+        content="An interactive FPS app using hand tracking to control a rocket launcher. Shoot missiles and create explosions!">
+    <meta property="og:image" content="https://www.renderfiction.com/explosions-preview.jpg">
+    <meta property="og:url" content="https://www.renderfiction.com/simulations/explosions.html">
+    <!-- Replace with actual URL -->
+    <meta property="og:type" content="website">
+
+    <!-- Twitter Card Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Explosions Interface">
+    <meta name="twitter:description"
+        content="An interactive FPS app using hand tracking to control a rocket launcher. Shoot missiles and create explosions!">
+    <meta name="twitter:image" content="https://www.renderfiction.com/explosions-preview.jpg">
+    <meta name="twitter:site" content="@renderfiction">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        /* Retain all existing styles from the finger painting app */
+        :root {
+            --neon-orange: #ff5a00;
+            --neon-red: #ff0000;
+            --neon-purple: #d300c5;
+            --neon-green: #00ff00;
+            --neon-red: #ff0000;
+            --dark-bg: #0d0221;
+            --darker-bg: #050110;
+            --glow: 0 0 10px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: white;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image:
+                linear-gradient(rgba(5, 217, 232, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(5, 217, 232, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .header {
+            padding: 15px;
+            border-bottom: 1px solid var(--neon-red);
+            box-shadow: var(--glow) var(--neon-red);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(13, 2, 33, 0.8);
+            position: relative;
+            z-index: 10;
+        }
+
+        .header::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--neon-orange), transparent);
+        }
+
+        .title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.8rem;
+            text-shadow: 0 0 8px var(--neon-orange);
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, var(--neon-orange), var(--neon-purple));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--neon-red);
+            box-shadow: 0 0 10px var(--neon-red);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.7;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.7;
+            }
+        }
+
+        .status-text {
+            font-size: 0.9rem;
+            color: var(--neon-red);
+        }
+
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+        }
+
+        #video-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            height: 240px;
+            border: 1px solid var(--neon-red);
+            box-shadow: inset 0 0 15px var(--neon-red), 0 0 15px var(--neon-red);
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #video-container::before {
+            content: "LIVE FEED";
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 0.7rem;
+            color: var(--neon-orange);
+            text-shadow: 0 0 5px var(--neon-orange);
+            z-index: 2;
+        }
+
+        #video-container .listening {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            font-size: 1.5rem;
+            color: var(--neon-orange);
+            text-shadow: 0 0 5px var(--neon-orange);
+            z-index: 2;
+            background: black;
+            padding: 10px;
+        }
+
+        #video {
+            width: 320px;
+            height: 240px;
+            object-fit: cover;
+        }
+
+        #landmarkCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            /* Ensure canvas is above video but below corners */
+        }
+
+        .canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 1px solid var(--neon-orange);
+            box-shadow: inset 0 0 15px var(--neon-orange), 0 0 15px var(--neon-orange);
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .canvas-container .instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 0.8rem;
+            color: var(--neon-red);
+            text-shadow: 0 0 5px var(--neon-red);
+            z-index: 2;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #canvas,
+        #cursorCanvas {
+            display: none;
+        }
+
+        /* Hide unused canvases */
+
+        .corner {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-color: var(--neon-red);
+            border-style: solid;
+            border-width: 0;
+            z-index: 6;
+        }
+
+        .corner-tl {
+            top: -1px;
+            left: -1px;
+            border-top-width: 3px;
+            border-left-width: 3px;
+        }
+
+        .corner-tr {
+            top: -1px;
+            right: -1px;
+            border-top-width: 3px;
+            border-right-width: 3px;
+        }
+
+        .corner-bl {
+            bottom: -1px;
+            left: -1px;
+            border-bottom-width: 3px;
+            border-left-width: 3px;
+        }
+
+        .corner-br {
+            bottom: -1px;
+            right: -1px;
+            border-bottom-width: 3px;
+            border-right-width: 3px;
+        }
+
+        .footer {
+            padding: 10px 15px;
+            border-top: 1px solid var(--neon-purple);
+            box-shadow: var(--glow) var(--neon-purple);
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--neon-red);
+            background-color: rgba(13, 2, 33, 0.8);
+        }
+
+        #drawingStatus {
+            font-size: 0.9rem;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        #drawingStatus.looking {
+            color: var(--neon-green);
+            text-shadow: 0 0 5px var(--neon-green);
+        }
+
+        #drawingStatus.firing {
+            color: var(--neon-red);
+            text-shadow: 0 0 5px var(--neon-red);
+        }
+
+        @media (max-width: 768px) {
+            #container {
+                flex-direction: column;
+            }
+
+            .title {
+                font-size: 1.2rem;
+            }
+        }
+
+        .crosshair-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            z-index: 2;
+        }
+
+        .quake-rocket {
+            position: absolute;
+            top: 65%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 1200px;
+            height: 600px;
+            z-index: 2;
+        }
+
+        @keyframes rocket-kickback {
+            0% {
+                top: 65%;
+            }
+
+            50% {
+                top: 75%;
+            }
+
+            100% {
+                top: 65%;
+            }
+        }
+
+        .quake-rocket.kickback {
+            animation: rocket-kickback 500ms ease-in-out;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="./rapier.es.js"></script>
+</head>
+
+<body>
+    <div class="header">
+        <div class="title">EXPLOSIONS v0.0.1</div>
+        <div class="status">
+            <div class="status-indicator"></div>
+            <div id="drawingStatus"></div>
+        </div>
+    </div>
+    <div class="crosshair-indicator">
+        <svg viewBox="0 0 40 40">
+            <line x1="0.5" y1="20" x2="15.5" y2="20" stroke="white" stroke-width="2" />
+            <line x1="24.5" y1="20" x2="39.5" y2="20" stroke="white" stroke-width="2" />
+            <line x1="20" y1="0.5" x2="20" y2="15.5" stroke="white" stroke-width="2" />
+            <line x1="20" y1="24.5" x2="20" y2="39.5" stroke="white" stroke-width="2" />
+        </svg>
+    </div>
+    <div id="container">
+        <!-- <div id="video-container">
+            <video id="video" width="320" height="240" autoplay playsinline></video>
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-tr"></div>
+            <div class="corner corner-bl"></div>
+            <div class="corner corner-br"></div>
+        </div> -->
+
+        <div class="canvas-container">
+            <div class="instructions">Open <b>RIGHT</b> hand to look around, close fist to fire! <br> Use WASD keys to navigate.</div>
+            <div id="video-container">
+                <video id="video" width="320" height="240" autoplay playsinline></video>
+                <canvas id="landmarkCanvas" width="320" height="240"></canvas>
+            </div>
+            <canvas id="canvas" width="800" height="800"></canvas>
+            <canvas id="threejs" width="800" height="800"></canvas>
+            <canvas id="cursorCanvas" width="800" height="800"></canvas>
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-tr"></div>
+            <div class="corner corner-bl"></div>
+            <div class="corner corner-br"></div>
+            <div class="quake-rocket">
+                <img src="./explosions_assets/Quake-Rocket-Launcher.png" />
+            </div>
+
+        </div>
+    </div>
+
+    <div class="footer">
+        
+        <a target="_blank" href="https://github.com/gemsjohn/explosions-computer-vision"
+            style="font-family: 'system-ui', sans-serif; position: fixed; bottom: -1px; left: -1px; padding: 7px; font-size: 14px; font-weight: bold; background: #fff; color: #000; text-decoration: none; z-index: 10; border-top-right-radius: 12px; z-index: 10000; border: 1px solid #fff;">🖥️
+            Code</a>
+        <a target="_blank" href="https://buymeacoffee.com/renderfiction"
+            style="font-family: 'system-ui', sans-serif; position: fixed; bottom: -1px; right: -1px; padding: 7px; font-size: 14px; font-weight: bold; background: #fff; color: #000; text-decoration: none; z-index: 10; border-top-left-radius: 12px; border: 1px solid #fff;">❤️
+            Support my open source projects!</a>
+    </div>
+
+    <script type="module">
+        import * as RAPIER from './rapier.es.js';
+
+        const keys = { w: false, a: false, s: false, d: false };
+        let controlsDisabled = false;
+        const moveSpeed = 15;
+        const desiredFPS = 24;
+        const frameInterval = 1000 / desiredFPS; // ~41.67 ms
+        const physicsTimeStep = 1 / desiredFPS; // ~0.04167 seconds
+        let lastFrameTime = 0;
+
+
+        // Canvas setup
+        const threejsCanvas = document.getElementById('threejs');
+        const drawingStatus = document.getElementById('drawingStatus');
+
+        // Three.js Scene Setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, threejsCanvas.clientWidth / threejsCanvas.clientHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: threejsCanvas, alpha: true });
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setSize(threejsCanvas.clientWidth, threejsCanvas.clientHeight);
+
+        // Sky
+        const skyGeometry = new THREE.SphereGeometry(500, 16, 16);
+        const skyMaterial = new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0.0 }, uColorBottom: { value: new THREE.Color(0x4a4a8a) }, uColorTop: { value: new THREE.Color(0x1a1a5a) }, uGlowIntensity: { value: 1.5 } },
+            vertexShader: `varying vec3 vWorldPosition; void main() { vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+            fragmentShader: `uniform float uTime; uniform vec3 uColorBottom; uniform vec3 uColorTop; uniform float uGlowIntensity; varying vec3 vWorldPosition; float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453); } void main() { float t = vWorldPosition.y / 500.0; vec3 color = mix(uColorBottom, uColorTop, t); float glow = exp(-abs(t - 0.1) * 10.0) * uGlowIntensity; float noise = 0.0; noise += random(vWorldPosition.xy + uTime); noise += random(vWorldPosition.xy + uTime + vec2(0.1, 0.0)); noise += random(vWorldPosition.xy + uTime + vec2(0.0, 0.1)); noise += random(vWorldPosition.xy + uTime + vec2(0.1, 0.1)); noise /= 4.0; noise *= 0.1; color += vec3(0.5, 0.2, 0.8) * glow + vec3(noise); gl_FragColor = vec4(color, 1.0); }`,
+            side: THREE.BackSide
+        });
+        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        // scene.add(sky);
+
+        // Lights
+        const light1 = new THREE.DirectionalLight(0xffccaa, 1.2);
+        light1.position.set(50, 50, 50);
+        light1.castShadow = true;
+        // light1.shadow.mapSize.set(512, 512);
+        scene.add(light1);
+
+        const light2 = new THREE.DirectionalLight(0xffccaa, 1.2);
+        light2.position.set(-50, 50, -50);
+        light2.castShadow = true;
+        // light2.shadow.mapSize.set(512, 512);
+        scene.add(light2);
+
+        // Textures
+        const textureLoader = new THREE.TextureLoader();
+        const groundTexture = textureLoader.load('explosions_assets/concrete.jpg', (texture) => {
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(10, 10);
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        });
+        const wallTexture = textureLoader.load('explosions_assets/wall_texture.jpg', (texture) => {
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(20, 1);
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        });
+        const smokeTexture = textureLoader.load('explosions_assets/smoke_2.png');
+        const fireTexture = textureLoader.load('explosions_assets/fire1.png');
+
+        // Ground and Walls
+        const groundGeometry = new THREE.BoxGeometry(100, 1, 100);
+        const groundMaterial = new THREE.MeshStandardMaterial({ map: groundTexture });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.position.set(0, -0.5, 0);
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const wallMaterial = new THREE.MeshStandardMaterial({ map: wallTexture });
+        const wallNSGeometry = new THREE.BoxGeometry(100, 10, 1);
+        const wallEWGeometry = new THREE.BoxGeometry(1, 10, 100);
+        const wallPositions = [
+            [0, 2.5, 50],
+            [0, 2.5, -50],
+            [50, 2.5, 0],
+            [-50, 2.5, 0]
+        ];
+        const wallGeometries = [wallNSGeometry, wallNSGeometry, wallEWGeometry, wallEWGeometry];
+        const walls = wallPositions.map((pos, i) => {
+            const wall = new THREE.Mesh(wallGeometries[i], wallMaterial);
+            wall.position.set(pos[0], pos[1], pos[2]); // Set position using position.set
+            wall.castShadow = true;
+            wall.receiveShadow = true;
+            scene.add(wall);
+            return wall;
+        });
+        walls.forEach(wall => {
+            wall.castShadow = wall.receiveShadow = true;
+            scene.add(wall);
+        });
+
+        // Character
+        const characterGeometry = new THREE.BoxGeometry(0.25, 0.25, 1);
+        const characterMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0, transparent: true });
+        const character = new THREE.Mesh(characterGeometry, characterMaterial);
+        scene.add(character);
+
+        window.addEventListener('keydown', (event) => {
+            if (controlsDisabled) return;
+            if (event.key === 'w') keys.w = true;
+            if (event.key === 'a') keys.a = true;
+            if (event.key === 's') keys.s = true;
+            if (event.key === 'd') keys.d = true;
+        });
+
+        window.addEventListener('keyup', (event) => {
+            if (controlsDisabled) return;
+            if (event.key === 'w') keys.w = false;
+            if (event.key === 'a') keys.a = false;
+            if (event.key === 's') keys.s = false;
+            if (event.key === 'd') keys.d = false;
+        });
+
+
+        // Physics Setup
+        let world, characterBody, eventQueue, projectiles = [];
+        async function initPhysics() {
+            await RAPIER.init();
+            world = new RAPIER.World({ x: 0.0, y: -19.62, z: 0.0 });
+
+            // Walls
+            const createWall = (pos, size) => {
+                const wallDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z);
+                const wallBody = world.createRigidBody(wallDesc);
+                wallBody.userData = { type: 'wall' };
+                world.createCollider(RAPIER.ColliderDesc.cuboid(size.x, size.y, size.z).setRestitution(0.3), wallBody);
+            };
+            createWall({ x: 0, y: 2.5, z: 50 }, { x: 50, y: 5, z: 0.5 });
+            createWall({ x: 0, y: 2.5, z: -50 }, { x: 50, y: 5, z: 0.5 });
+            createWall({ x: 50, y: 2.5, z: 0 }, { x: 0.5, y: 5, z: 50 });
+            createWall({ x: -50, y: 2.5, z: 0 }, { x: 0.5, y: 5, z: 50 });
+
+            // Platform
+            const platformDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0);
+            const platformBody = world.createRigidBody(platformDesc);
+            platformBody.userData = { type: 'platform' };
+            world.createCollider(RAPIER.ColliderDesc.cuboid(50, 1, 50).setRestitution(0.3), platformBody);
+
+            // Character
+            const characterBodyDesc = RAPIER.RigidBodyDesc.dynamic()
+                .setTranslation(0, 10, 0)
+                .setAdditionalMass(1.0)
+                .setLinearDamping(0.5)
+                .setAngularDamping(0.2);
+            characterBody = world.createRigidBody(characterBodyDesc);
+            characterBody.userData = { type: 'character' };
+            world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, 1, 0.5).setFriction(0.5).setRestitution(0), characterBody);
+
+            eventQueue = new RAPIER.EventQueue(true);
+        }
+
+        // MediaPipe Hands Setup
+        const videoElement = document.getElementById('video');
+        const landmarkCanvas = document.getElementById('landmarkCanvas');
+        const landmarkCtx = landmarkCanvas.getContext('2d');
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+        const cameraFeed = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 320,
+            height: 240
+        });
+        cameraFeed.start();
+
+        // Hand Tracking State
+        let handDetected = false, prevHandOpen = false, prevFingerX = null, prevFingerY = null;
+        let yaw = 0, pitch = 0, sensitivity = 0.04;
+
+        function isHandOpen(landmarks) {
+            const fingers = [[8, 6], [12, 10], [16, 14], [20, 18], [4, 2]];
+            let openCount = 0;
+            fingers.forEach(([tip, pip]) => {
+                if (landmarks[tip].y < landmarks[pip].y) openCount++;
+            });
+            return openCount >= 3;
+        }
+
+        function onResults(results) {
+            // Clear the canvas
+            landmarkCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+
+            let rightHandLandmarks = null;
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                results.multiHandedness.forEach((h, i) => {
+                    if (h.label === 'Left') rightHandLandmarks = results.multiHandLandmarks[i]; // Select the right hand
+                });
+
+                // Draw landmarks and connections
+                if (rightHandLandmarks) {
+                    // Save the canvas state
+                    landmarkCtx.save();
+                    // Draw without flipping (landmarks match physical hand)
+                    drawConnectors(landmarkCtx, rightHandLandmarks, HAND_CONNECTIONS, {
+                        color: '#d300c5',
+                        lineWidth: 1
+                    });
+                    drawLandmarks(landmarkCtx, rightHandLandmarks, {
+                        color: '#ff5a00',
+                        lineWidth: 1,
+                        radius: 2
+                    });
+                    // Restore the canvas state
+                    landmarkCtx.restore();
+                }
+            }
+
+            if (rightHandLandmarks) {
+                const isOpen = isHandOpen(rightHandLandmarks);
+                drawingStatus.textContent = isOpen ? 'Looking' : 'Firing';
+                drawingStatus.className = isOpen ? 'looking' : 'firing';
+
+                if (!handDetected) {
+                    handDetected = true;
+                    prevFingerX = rightHandLandmarks[0].x;
+                    prevFingerY = rightHandLandmarks[0].y;
+                    prevHandOpen = isOpen;
+                } else {
+                    if (isOpen) {
+                        const currentFingerX = rightHandLandmarks[0].x;
+                        const currentFingerY = rightHandLandmarks[0].y;
+                        // Invert deltaX to correct for mirrored coordinates
+                        const deltaX = -(currentFingerX - prevFingerX); // Negate to reverse direction
+                        const deltaY = currentFingerY - prevFingerY;
+                        yaw -= deltaX * sensitivity * 100;
+                        pitch -= deltaY * sensitivity * 100;
+                        pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                        prevFingerX = currentFingerX;
+                        prevFingerY = currentFingerY;
+                    }
+                    if (!isOpen && prevHandOpen) createProjectile();
+                    prevHandOpen = isOpen;
+                }
+            } else {
+                handDetected = false;
+                drawingStatus.textContent = 'No Hand Detected';
+                drawingStatus.className = '';
+            }
+        }
+
+
+        // Projectile and Explosion Functions
+        function createProjectile() {
+            if (projectiles.length >= 10) return;
+            const playerPos = characterBody.translation();
+            const playerRot = characterBody.rotation();
+            const localOffset = new THREE.Vector3(0, 0.25, -1);
+            const worldOffset = localOffset.clone().applyQuaternion(
+                new THREE.Quaternion(playerRot.x, playerRot.y, playerRot.z, playerRot.w)
+            );
+            const startPos = new THREE.Vector3(playerPos.x, playerPos.y, playerPos.z).add(worldOffset);
+
+            const projectileDesc = RAPIER.RigidBodyDesc.dynamic()
+                .setTranslation(startPos.x, startPos.y + 2, startPos.z)
+                .setAdditionalMass(0.1)
+                .setLinearDamping(0.0)
+                .setCcdEnabled(true);
+            const projectileBody = world.createRigidBody(projectileDesc);
+            projectileBody.userData = { type: 'projectile' };
+            world.createCollider(RAPIER.ColliderDesc.ball(0.2).setRestitution(0).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), projectileBody);
+
+            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const velocity = direction.multiplyScalar(200);
+            projectileBody.setLinvel({ x: velocity.x, y: velocity.y, z: velocity.z }, true);
+
+            const geometry = new THREE.SphereGeometry(0.5, 8, 8);
+            const material = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            scene.add(mesh);
+            projectiles.push({ body: projectileBody, mesh, creationTime: Date.now() });
+
+            // Trigger rocket kickback animation
+            const rocket = document.querySelector('.quake-rocket');
+            rocket.classList.add('kickback');
+            setTimeout(() => {
+                rocket.classList.remove('kickback');
+            }, 500); // Remove class after 500ms to allow animation to complete
+        }
+
+        let projectilesToRemove = [];
+
+        function handleProjectileCollision(projectileBody) {
+            const projectile = projectiles.find(p => p.body === projectileBody);
+            if (!projectile) return;
+            projectilesToRemove.push(projectile); // Mark for removal
+            createExplosion(projectileBody.translation());
+        }
+        function createTrailSmoke(position) {
+            const particleCount = 5;
+            const particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                const spriteMaterial = new THREE.SpriteMaterial({
+                    map: smokeTexture,
+                    color: 0xb8b8b8,
+                    transparent: true,
+                    opacity: 0.6,
+                    blending: THREE.NormalBlending,
+                    depthWrite: false,
+                    rotation: Math.random() * Math.PI * 2
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.set(position.x, position.y, position.z);
+                sprite.scale.set(1, 1, 1);
+                const velocity = new THREE.Vector3((Math.random() - 0.5) * 0.02, 0.05 + Math.random() * 0.02, (Math.random() - 0.5) * 0.02);
+                sprite.userData.velocity = velocity;
+                scene.add(sprite);
+                particles.push(sprite);
+            }
+            return particles;
+        }
+
+        function createSmoke(position) {
+            const particleCount = 10;
+            const particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                const spriteMaterial = new THREE.SpriteMaterial({
+                    map: smokeTexture, color: 0xf4381a, transparent: true, opacity: 0.9, blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.set(position.x, position.y, position.z);
+                sprite.scale.set(6, 6, 1);
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const speed = 0.5;
+                const velocity = new THREE.Vector3(
+                    speed * Math.sin(phi) * Math.cos(theta) * 2,
+                    speed * Math.cos(phi) * 0.4,
+                    speed * Math.sin(phi) * Math.sin(theta) * 2
+                );
+                sprite.userData.velocity = velocity;
+                scene.add(sprite);
+                particles.push(sprite);
+            }
+            return particles;
+        }
+
+        function createFire(position) {
+            const particleCount = 20;
+            const particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                const spriteMaterial = new THREE.SpriteMaterial({
+                    map: fireTexture, color: 0xff9c00, transparent: true, opacity: 0.6, blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.set(position.x, position.y, position.z);
+                sprite.scale.set(3, 3, 1);
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const speed = 0.07;
+                const velocity = new THREE.Vector3(
+                    speed * Math.sin(phi) * Math.cos(theta),
+                    speed * Math.cos(phi) * 1.4,
+                    speed * Math.sin(phi) * Math.sin(theta)
+                );
+                sprite.userData.velocity = velocity;
+                scene.add(sprite);
+                particles.push(sprite);
+            }
+            return particles;
+        }
+
+        function animateSmoke(particles, duration) {
+            const startTime = Date.now();
+            const intervalTime = 1000 / desiredFPS; // ~41.67 ms
+            const interval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = elapsed / duration;
+                if (progress >= 1) {
+                    clearInterval(interval);
+                    particles.forEach(particle => scene.remove(particle));
+                    return;
+                }
+                const damping = 0.98;
+                particles.forEach(particle => {
+                    particle.userData.velocity.multiplyScalar(damping);
+                    particle.position.add(particle.userData.velocity);
+                });
+                const opacity = 0.6 * (1 - progress);
+                particles.forEach(particle => particle.material.opacity = opacity);
+            }, intervalTime);
+        }
+
+        function createExplosion(position) {
+            const smokeParticles = createSmoke(position);
+            const fireParticles = createFire(position);
+            animateSmoke(smokeParticles, 2000);
+            animateSmoke(fireParticles, 1200);
+        }
+
+        // Animation Loop
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+            const deltaTime = currentTime - lastFrameTime;
+            if (deltaTime < frameInterval) {
+                return; // Skip this frame if not enough time has passed
+            }
+            lastFrameTime = currentTime - (deltaTime % frameInterval); // Adjust for smoother timing
+
+            // skyMaterial.uniforms.uTime.value += 0.01;
+
+            // Update character rotation and position
+            const characterQuaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+            character.quaternion.copy(characterQuaternion);
+            const rapierQuat = { x: characterQuaternion.x, y: characterQuaternion.y, z: characterQuaternion.z, w: characterQuaternion.w };
+            characterBody.setRotation(rapierQuat, true);
+            const position = characterBody.translation();
+            character.position.set(position.x, position.y, position.z);
+
+            // Movement logic
+            const moveForward = keys.w ? 1 : keys.s ? -1 : 0;
+            const moveRight = keys.d ? 1 : keys.a ? -1 : 0;
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(character.quaternion);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(character.quaternion);
+            const velocityVec = new THREE.Vector3();
+            if (moveForward !== 0 || moveRight !== 0) {
+                velocityVec.add(forward.multiplyScalar(moveForward));
+                velocityVec.add(right.multiplyScalar(moveRight));
+                velocityVec.normalize().multiplyScalar(moveSpeed);
+            }
+            const currentVel = characterBody.linvel();
+            characterBody.setLinvel({ x: velocityVec.x, y: currentVel.y, z: velocityVec.z }, true);
+
+
+            // Update camera
+            const cameraEuler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+            const cameraQuaternion = new THREE.Quaternion().setFromEuler(cameraEuler);
+            camera.quaternion.copy(cameraQuaternion);
+            const offset = new THREE.Vector3(0, 2, 5).applyQuaternion(cameraQuaternion);
+            camera.position.copy(character.position).add(offset);
+
+            // Update projectiles
+            projectiles.forEach(projectile => {
+                const pos = projectile.body.translation();
+                projectile.mesh.position.set(pos.x, pos.y, pos.z);
+                const smokeParticles = createTrailSmoke(projectile.mesh.position);
+                animateSmoke(smokeParticles, 1000);
+            });
+
+            // Step physics world
+            world.step(eventQueue);
+            eventQueue.drainCollisionEvents((handle1, handle2, started) => {
+                const collider1 = world.getCollider(handle1);
+                const collider2 = world.getCollider(handle2);
+                const body1 = collider1.parent();
+                const body2 = collider2.parent();
+                if (body1.userData.type === 'projectile' && started) handleProjectileCollision(body1);
+                else if (body2.userData.type === 'projectile' && started) handleProjectileCollision(body2);
+            });
+
+            // Remove marked projectiles
+            projectilesToRemove.forEach(projectile => {
+                scene.remove(projectile.mesh);
+                world.removeRigidBody(projectile.body);
+                projectiles = projectiles.filter(p => p !== projectile);
+            });
+            projectilesToRemove = [];
+
+            // Clean up old projectiles
+            const now = Date.now();
+            projectiles = projectiles.filter(projectile => {
+                if (now - projectile.creationTime > 3000) {
+                    scene.remove(projectile.mesh);
+                    world.removeRigidBody(projectile.body);
+                    return false;
+                }
+                return true;
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Start Application
+        (async () => {
+            await initPhysics();
+            animate();
+        })();
+    </script>
+</body>
+
+</html>
