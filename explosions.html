@@ -339,6 +339,27 @@
         .quake-rocket.kickback {
             animation: rocket-kickback 500ms ease-in-out;
         }
+
+        .game-stats {
+            display: flex;
+            gap: 20px;
+            /* Space between score and deaths */
+            align-items: center;
+            font-family: 'Press Start 2P', cursive;
+            /* Match title font */
+            font-size: 1rem;
+            /* Adjust size as needed */
+        }
+
+        #scoreDisplay {
+            color: var(--neon-green);
+            text-shadow: 0 0 8px var(--neon-green);
+        }
+
+        #deathsDisplay {
+            color: var(--neon-red);
+            text-shadow: 0 0 8px var(--neon-red);
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -350,6 +371,10 @@
 <body>
     <div class="header">
         <div class="title">EXPLOSIONS v0.0.1</div>
+        <div class="game-stats">
+            <div id="scoreDisplay">Score: 0</div>
+            <div id="deathsDisplay">Deaths: 0</div>
+        </div>
         <div class="status">
             <div class="status-indicator"></div>
             <div id="drawingStatus"></div>
@@ -364,18 +389,12 @@
         </svg>
     </div>
     <div id="container">
-        <!-- <div id="video-container">
-            <video id="video" width="320" height="240" autoplay playsinline></video>
-            <div class="corner corner-tl"></div>
-            <div class="corner corner-tr"></div>
-            <div class="corner corner-bl"></div>
-            <div class="corner corner-br"></div>
-        </div> -->
-
         <div class="canvas-container">
-            <div class="instructions">Open <b>RIGHT</b> hand to look around, close fist to fire! <br> Use WASD keys to navigate.</div>
+            <div class="instructions">Open <b>RIGHT</b> hand to look around, close fist to fire! <br> Use WASD keys to
+                navigate.</div>
             <div id="video-container">
-                <video id="video" width="320" height="240" autoplay playsinline></video>
+                <video id="video" width="320" height="240" style="display: none; width: 320px; height: 240px;" autoplay
+                    playsinline></video>
                 <canvas id="landmarkCanvas" width="320" height="240"></canvas>
             </div>
             <canvas id="canvas" width="800" height="800"></canvas>
@@ -388,12 +407,10 @@
             <div class="quake-rocket">
                 <img src="./explosions_assets/Quake-Rocket-Launcher.png" />
             </div>
-
         </div>
     </div>
 
     <div class="footer">
-        
         <a target="_blank" href="https://github.com/gemsjohn/explosions-computer-vision"
             style="font-family: 'system-ui', sans-serif; position: fixed; bottom: -1px; left: -1px; padding: 7px; font-size: 14px; font-weight: bold; background: #fff; color: #000; text-decoration: none; z-index: 10; border-top-right-radius: 12px; z-index: 10000; border: 1px solid #fff;">🖥️
             Code</a>
@@ -402,28 +419,79 @@
             Support my open source projects!</a>
     </div>
 
+    <!-- Audio Elements -->
+    <audio id="rocketLauncherFiringAudio001" preload="auto">
+        <source src="./explosions_assets/rocket_launcher_firing_01.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="rocketLauncherFiringAudio002" preload="auto">
+        <source src="./explosions_assets/rocket_launcher_firing_02.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="rocketLauncherFiringAudio003" preload="auto">
+        <source src="./explosions_assets/rocket_launcher_firing_03.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="rocketLauncherFiringAudio004" preload="auto">
+        <source src="./explosions_assets/rocket_launcher_firing_04.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="rocketLauncherCollisionAudio" preload="auto">
+        <source src="./explosions_assets/rocket_launcher_collision_01.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="gutsExplosionAudio" preload="auto">
+        <source src="./explosions_assets/guts_explosion.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <audio id="wreckedAudio" preload="auto">
+        <source src="./explosions_assets/wrecked_audio.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+
     <script type="module">
         import * as RAPIER from './rapier.es.js';
 
         const keys = { w: false, a: false, s: false, d: false };
         let controlsDisabled = false;
-        const moveSpeed = 15;
+        const moveSpeed = 35;
         const desiredFPS = 24;
         const frameInterval = 1000 / desiredFPS; // ~41.67 ms
         const physicsTimeStep = 1 / desiredFPS; // ~0.04167 seconds
         let lastFrameTime = 0;
+        let activeParticleEffects = [];
+        const PARTICLE_DESIRED_FPS = 60; // For scaling damping, if needed
+        let lastHandsSendTime = 0;
+        const HANDS_SEND_INTERVAL = 1000 / 20; // Target 20 FPS for hand processing (50ms interval)
+        const projectileGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+        const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
 
         // Canvas setup
         const threejsCanvas = document.getElementById('threejs');
         const drawingStatus = document.getElementById('drawingStatus');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const deathsDisplay = document.getElementById('deathsDisplay');
+
+        // Game State
+        let score = 0;
+        let deaths = 0;
+
+        // Audio Elements and State
+        let rocketFiringAudios = [];
+        let rocketCollisionAudio;
+        let gutsExplosionAudio;
+        let wreckedAudio;
+        let currentFiringAudioIndex = 0;
+
 
         // Three.js Scene Setup
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, threejsCanvas.clientWidth / threejsCanvas.clientHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ canvas: threejsCanvas, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.PCFShadowMap;
         renderer.setSize(threejsCanvas.clientWidth, threejsCanvas.clientHeight);
 
         // Sky
@@ -435,24 +503,36 @@
             side: THREE.BackSide
         });
         const sky = new THREE.Mesh(skyGeometry, skyMaterial);
-        // scene.add(sky);
+        scene.add(sky);
 
         // Lights
         const light1 = new THREE.DirectionalLight(0xffccaa, 1.2);
         light1.position.set(50, 50, 50);
         light1.castShadow = true;
-        // light1.shadow.mapSize.set(512, 512);
+        light1.shadow.mapSize.set(1024, 1024);
+        light1.shadow.camera.near = 0.5;
+        light1.shadow.camera.far = 200;
+        light1.shadow.camera.left = -100;
+        light1.shadow.camera.right = 100;
+        light1.shadow.camera.top = 100;
+        light1.shadow.camera.bottom = -100;
         scene.add(light1);
 
         const light2 = new THREE.DirectionalLight(0xffccaa, 1.2);
         light2.position.set(-50, 50, -50);
         light2.castShadow = true;
-        // light2.shadow.mapSize.set(512, 512);
+        light2.shadow.mapSize.set(1024, 1024);
+        light2.shadow.camera.near = 0.5;
+        light2.shadow.camera.far = 200;
+        light2.shadow.camera.left = -100;
+        light2.shadow.camera.right = 100;
+        light2.shadow.camera.top = 100;
+        light2.shadow.camera.bottom = -100;
         scene.add(light2);
 
         // Textures
         const textureLoader = new THREE.TextureLoader();
-        const groundTexture = textureLoader.load('explosions_assets/concrete.jpg', (texture) => {
+        const groundTexture = textureLoader.load('explosions_assets/floor_texture.jpg', (texture) => {
             texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
             texture.repeat.set(10, 10);
             texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -464,6 +544,9 @@
         });
         const smokeTexture = textureLoader.load('explosions_assets/smoke_2.png');
         const fireTexture = textureLoader.load('explosions_assets/fire1.png');
+        const gutsTexture = textureLoader.load('explosions_assets/pixelated_blood.png');
+        const enemyImageTexture = textureLoader.load('explosions_assets/quake_v_001.png'); // Enemy Texture
+
 
         // Ground and Walls
         const groundGeometry = new THREE.BoxGeometry(100, 1, 100);
@@ -485,15 +568,11 @@
         const wallGeometries = [wallNSGeometry, wallNSGeometry, wallEWGeometry, wallEWGeometry];
         const walls = wallPositions.map((pos, i) => {
             const wall = new THREE.Mesh(wallGeometries[i], wallMaterial);
-            wall.position.set(pos[0], pos[1], pos[2]); // Set position using position.set
+            wall.position.set(pos[0], pos[1], pos[2]);
             wall.castShadow = true;
             wall.receiveShadow = true;
             scene.add(wall);
             return wall;
-        });
-        walls.forEach(wall => {
-            wall.castShadow = wall.receiveShadow = true;
-            scene.add(wall);
         });
 
         // Character
@@ -518,6 +597,121 @@
             if (event.key === 'd') keys.d = false;
         });
 
+        function updateScoreDisplay() {
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+
+        function updateDeathsDisplay() {
+            deathsDisplay.textContent = `Deaths: ${deaths}`;
+        }
+
+        function initAudio() {
+            rocketFiringAudios = [
+                document.getElementById('rocketLauncherFiringAudio001'),
+                document.getElementById('rocketLauncherFiringAudio002'),
+                document.getElementById('rocketLauncherFiringAudio003'),
+                document.getElementById('rocketLauncherFiringAudio004')
+            ];
+            rocketCollisionAudio = document.getElementById('rocketLauncherCollisionAudio');
+            gutsExplosionAudio = document.getElementById('gutsExplosionAudio');
+            wreckedAudio = document.getElementById('wreckedAudio');
+
+            // Optional: Log to confirm elements are found by their IDs
+            // console.log("rocketFiringAudios[0]:", rocketFiringAudios[0] ? rocketFiringAudios[0].id : "Not found");
+            // console.log("rocketCollisionAudio:", rocketCollisionAudio ? rocketCollisionAudio.id : "Not found");
+            // console.log("wreckedAudio:", wreckedAudio ? wreckedAudio.id : "Not found");
+
+            const allAudioElements = [...rocketFiringAudios, rocketCollisionAudio, wreckedAudio, gutsExplosionAudio];
+            allAudioElements.forEach(audio => {
+                if (!audio) {
+                    console.error("An audio element ID is incorrect or missing in the HTML. Ensure all <audio> tags have correct IDs and are present before this script runs.");
+                    // No return here, let it try to attach to others if some are missing
+                }
+                // You can add individual error listeners for deeper debugging if needed:
+                // if (audio) {
+                //     audio.onerror = (e) => {
+                //         const err = audio.error;
+                //         let errMessage = "Unknown audio error.";
+                //         if (err) {
+                //             switch (err.code) {
+                //                 case MediaError.MEDIA_ERR_ABORTED: errMessage = "Playback aborted."; break;
+                //                 case MediaError.MEDIA_ERR_NETWORK: errMessage = "Network error caused download to fail. Check file paths and network."; break;
+                //                 case MediaError.MEDIA_ERR_DECODE:  errMessage = "Decoding error. File might be corrupt or in an unsupported format."; break;
+                //                 case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: errMessage = "Audio source not supported. Check MIME type and browser compatibility."; break;
+                //                 default: errMessage = `An unknown error occurred (code ${err.code}).`;
+                //             }
+                //         }
+                //         console.error(`Audio error on ${audio.id}: ${errMessage}`, e);
+                //     };
+                // }
+            });
+
+            const unlockAudioContext = () => {
+                const audioToUnlock = rocketFiringAudios.find(a => a) || rocketCollisionAudio || wreckedAudio || gutsExplosionAudio;
+
+                if (audioToUnlock) {
+                    audioToUnlock.volume = 0; // Mute for the unlock attempt
+                    const playPromise = audioToUnlock.play();
+
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            audioToUnlock.pause();
+                            audioToUnlock.currentTime = 0;
+                            audioToUnlock.volume = 1; // Reset volume
+                            console.log("Audio context unlock successful or already unlocked.");
+                        }).catch(error => {
+                            // This error is common if the user hasn't interacted yet OR if the specific audio file isn't ready.
+                            // The main goal is to initiate the audio context.
+                            // console.warn("Audio context unlock play() failed (this might be normal before first interaction or if audio not ready):", error.message);
+                        });
+                    }
+                } else {
+                    console.warn("No audio element found to attempt audio context unlock.");
+                }
+
+                // Clean up listeners
+                document.removeEventListener('click', unlockAudioContext);
+                document.removeEventListener('keydown', unlockAudioContext);
+                document.removeEventListener('pointerdown', unlockAudioContext);
+            };
+
+            // Listen for the first user interaction to unlock the audio context
+            document.addEventListener('click', unlockAudioContext, { once: true });
+            document.addEventListener('keydown', unlockAudioContext, { once: true });
+            document.addEventListener('pointerdown', unlockAudioContext, { once: true }); // Catches touch and mouse
+        }
+
+        // Helper function to play audio, handling restart
+        function playSound(audioElement) {
+            if (audioElement) {
+                // HTMLMediaElement.HAVE_METADATA (readyState 1) means duration, etc., are known.
+                // HTMLMediaElement.HAVE_ENOUGH_DATA (readyState 4) means it can play through.
+                // We need at least HAVE_METADATA to reasonably attempt a play.
+                if (audioElement.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                    audioElement.currentTime = 0; // Rewind to start
+                    const playPromise = audioElement.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            // AbortError is common if play() is called again quickly or if paused.
+                            if (error.name !== 'AbortError') {
+                                console.error(`Error playing sound ${audioElement.id}: ${error.name} - ${error.message}`);
+                            }
+                        });
+                    }
+                } else {
+                    console.warn(`Audio element ${audioElement.id} not ready to play. Current readyState: ${audioElement.readyState}. Attempting to load...`);
+                    // If the audio isn't even at HAVE_METADATA, explicitly tell the browser to load it.
+                    // `preload="auto"` should handle this, but this provides an extra nudge if called too early.
+                    audioElement.load();
+                    // Note: Calling play() immediately after load() might still fail if loading is slow.
+                    // For a more robust solution here, you might queue the sound or listen for 'canplay' event.
+                    // However, for many cases, the next attempt to play this sound might find it ready.
+                }
+            } else {
+                console.error("playSound was called with a null or undefined audioElement. Check IDs and initialization.");
+            }
+        }
+
 
         // Physics Setup
         let world, characterBody, eventQueue, projectiles = [];
@@ -525,7 +719,6 @@
             await RAPIER.init();
             world = new RAPIER.World({ x: 0.0, y: -19.62, z: 0.0 });
 
-            // Walls
             const createWall = (pos, size) => {
                 const wallDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z);
                 const wallBody = world.createRigidBody(wallDesc);
@@ -537,13 +730,11 @@
             createWall({ x: 50, y: 2.5, z: 0 }, { x: 0.5, y: 5, z: 50 });
             createWall({ x: -50, y: 2.5, z: 0 }, { x: 0.5, y: 5, z: 50 });
 
-            // Platform
             const platformDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0);
             const platformBody = world.createRigidBody(platformDesc);
             platformBody.userData = { type: 'platform' };
             world.createCollider(RAPIER.ColliderDesc.cuboid(50, 1, 50).setRestitution(0.3), platformBody);
 
-            // Character
             const characterBodyDesc = RAPIER.RigidBodyDesc.dynamic()
                 .setTranslation(0, 10, 0)
                 .setAdditionalMass(1.0)
@@ -571,7 +762,13 @@
         });
         hands.onResults(onResults);
         const cameraFeed = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({ image: videoElement }); },
+            onFrame: async () => {
+                const now = performance.now();
+                if (now - lastHandsSendTime >= HANDS_SEND_INTERVAL) {
+                    await hands.send({ image: videoElement });
+                    lastHandsSendTime = now;
+                }
+            },
             width: 320,
             height: 240
         });
@@ -579,7 +776,7 @@
 
         // Hand Tracking State
         let handDetected = false, prevHandOpen = false, prevFingerX = null, prevFingerY = null;
-        let yaw = 0, pitch = 0, sensitivity = 0.04;
+        let yaw = 0, pitch = 0, sensitivity = 0.09;
 
         function isHandOpen(landmarks) {
             const fingers = [[8, 6], [12, 10], [16, 14], [20, 18], [4, 2]];
@@ -591,39 +788,23 @@
         }
 
         function onResults(results) {
-            // Clear the canvas
             landmarkCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
-
             let rightHandLandmarks = null;
             if (results.multiHandLandmarks && results.multiHandedness) {
                 results.multiHandedness.forEach((h, i) => {
-                    if (h.label === 'Left') rightHandLandmarks = results.multiHandLandmarks[i]; // Select the right hand
+                    if (h.label === 'Left') rightHandLandmarks = results.multiHandLandmarks[i];
                 });
-
-                // Draw landmarks and connections
                 if (rightHandLandmarks) {
-                    // Save the canvas state
                     landmarkCtx.save();
-                    // Draw without flipping (landmarks match physical hand)
-                    drawConnectors(landmarkCtx, rightHandLandmarks, HAND_CONNECTIONS, {
-                        color: '#d300c5',
-                        lineWidth: 1
-                    });
-                    drawLandmarks(landmarkCtx, rightHandLandmarks, {
-                        color: '#ff5a00',
-                        lineWidth: 1,
-                        radius: 2
-                    });
-                    // Restore the canvas state
+                    drawConnectors(landmarkCtx, rightHandLandmarks, HAND_CONNECTIONS, { color: '#d300c5', lineWidth: 1 });
+                    drawLandmarks(landmarkCtx, rightHandLandmarks, { color: '#ff5a00', lineWidth: 1, radius: 2 });
                     landmarkCtx.restore();
                 }
             }
-
             if (rightHandLandmarks) {
                 const isOpen = isHandOpen(rightHandLandmarks);
                 drawingStatus.textContent = isOpen ? 'Looking' : 'Firing';
                 drawingStatus.className = isOpen ? 'looking' : 'firing';
-
                 if (!handDetected) {
                     handDetected = true;
                     prevFingerX = rightHandLandmarks[0].x;
@@ -633,12 +814,16 @@
                     if (isOpen) {
                         const currentFingerX = rightHandLandmarks[0].x;
                         const currentFingerY = rightHandLandmarks[0].y;
-                        // Invert deltaX to correct for mirrored coordinates
-                        const deltaX = -(currentFingerX - prevFingerX); // Negate to reverse direction
-                        const deltaY = currentFingerY - prevFingerY;
-                        yaw -= deltaX * sensitivity * 100;
-                        pitch -= deltaY * sensitivity * 100;
-                        pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                        let deltaX = -(currentFingerX - prevFingerX);
+                        let deltaY = currentFingerY - prevFingerY;
+                        const deadzone = 0.003;
+                        if (Math.abs(deltaX) < deadzone) deltaX = 0;
+                        if (Math.abs(deltaY) < deadzone) deltaY = 0;
+                        if (deltaX !== 0) yaw -= deltaX * sensitivity * 100;
+                        if (deltaY !== 0) {
+                            pitch -= deltaY * sensitivity * 100;
+                            pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                        }
                         prevFingerX = currentFingerX;
                         prevFingerY = currentFingerY;
                     }
@@ -646,12 +831,13 @@
                     prevHandOpen = isOpen;
                 }
             } else {
-                handDetected = false;
-                drawingStatus.textContent = 'No Hand Detected';
-                drawingStatus.className = '';
+                if (handDetected) {
+                    handDetected = false;
+                    drawingStatus.textContent = 'No Hand Detected';
+                    drawingStatus.className = '';
+                }
             }
         }
-
 
         // Projectile and Explosion Functions
         function createProjectile() {
@@ -677,205 +863,406 @@
             const velocity = direction.multiplyScalar(200);
             projectileBody.setLinvel({ x: velocity.x, y: velocity.y, z: velocity.z }, true);
 
-            const geometry = new THREE.SphereGeometry(0.5, 8, 8);
-            const material = new THREE.MeshStandardMaterial({ color: 0x333333 });
-            const mesh = new THREE.Mesh(geometry, material);
+            const mesh = new THREE.Mesh(projectileGeometry, projectileMaterial);
             mesh.castShadow = true;
             scene.add(mesh);
             projectiles.push({ body: projectileBody, mesh, creationTime: Date.now() });
 
-            // Trigger rocket kickback animation
+            // Play firing sound
+            if (rocketFiringAudios.length > 0 && rocketFiringAudios[currentFiringAudioIndex]) {
+                playSound(rocketFiringAudios[currentFiringAudioIndex]);
+                currentFiringAudioIndex = (currentFiringAudioIndex + 1) % rocketFiringAudios.length;
+            }
+
             const rocket = document.querySelector('.quake-rocket');
             rocket.classList.add('kickback');
-            setTimeout(() => {
-                rocket.classList.remove('kickback');
-            }, 500); // Remove class after 500ms to allow animation to complete
+            setTimeout(() => rocket.classList.remove('kickback'), 500);
         }
 
         let projectilesToRemove = [];
 
         function handleProjectileCollision(projectileBody) {
             const projectile = projectiles.find(p => p.body === projectileBody);
-            if (!projectile) return;
-            projectilesToRemove.push(projectile); // Mark for removal
-            createExplosion(projectileBody.translation());
+            if (!projectile || projectilesToRemove.includes(projectile)) return; // Already marked or not found
+
+            projectilesToRemove.push(projectile);
+            createExplosion(projectileBody.translation()); // Creates visual explosion
+            playSound(rocketCollisionAudio); // Play collision sound
         }
+
         function createTrailSmoke(position) {
             const particleCount = 5;
             const particles = [];
+            const durationSeconds = 0.25;
             for (let i = 0; i < particleCount; i++) {
                 const spriteMaterial = new THREE.SpriteMaterial({
-                    map: smokeTexture,
-                    color: 0xb8b8b8,
-                    transparent: true,
-                    opacity: 0.6,
-                    blending: THREE.NormalBlending,
-                    depthWrite: false,
-                    rotation: Math.random() * Math.PI * 2
+                    map: smokeTexture, color: 0xb8b8b8, transparent: true, opacity: 0.6,
+                    blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
                 });
                 const sprite = new THREE.Sprite(spriteMaterial);
-                sprite.position.set(position.x, position.y, position.z);
+                sprite.position.copy(position);
                 sprite.scale.set(1, 1, 1);
                 const velocity = new THREE.Vector3((Math.random() - 0.5) * 0.02, 0.05 + Math.random() * 0.02, (Math.random() - 0.5) * 0.02);
-                sprite.userData.velocity = velocity;
+                sprite.userData = { velocity: velocity, initialOpacity: 0.9, initialScale: 1, damping: 0.97 };
                 scene.add(sprite);
                 particles.push(sprite);
             }
-            return particles;
+            activeParticleEffects.push({ particles: particles, age: 0, duration: durationSeconds, type: 'trail_smoke' });
         }
 
         function createSmoke(position) {
-            const particleCount = 10;
+            const particleCount = 8;
             const particles = [];
+            const durationSeconds = 1;
             for (let i = 0; i < particleCount; i++) {
                 const spriteMaterial = new THREE.SpriteMaterial({
-                    map: smokeTexture, color: 0xf4381a, transparent: true, opacity: 0.9, blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
+                    map: smokeTexture, color: 0xf4381a, transparent: true, opacity: 0.9,
+                    blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
                 });
                 const sprite = new THREE.Sprite(spriteMaterial);
-                sprite.position.set(position.x, position.y, position.z);
-                sprite.scale.set(6, 6, 1);
+                sprite.position.copy(position);
+                sprite.scale.set(5, 5, 1);
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.acos(2 * Math.random() - 1);
-                const speed = 0.5;
-                const velocity = new THREE.Vector3(
-                    speed * Math.sin(phi) * Math.cos(theta) * 2,
-                    speed * Math.cos(phi) * 0.4,
-                    speed * Math.sin(phi) * Math.sin(theta) * 2
-                );
-                sprite.userData.velocity = velocity;
+                const speed = 0.4 + Math.random() * 0.2;
+                const velocity = new THREE.Vector3(speed * Math.sin(phi) * Math.cos(theta) * 2, speed * Math.cos(phi) * 0.4, speed * Math.sin(phi) * Math.sin(theta) * 2);
+                sprite.userData = { velocity: velocity, initialOpacity: 0.9, initialScale: 5, damping: 0.97 };
                 scene.add(sprite);
                 particles.push(sprite);
             }
-            return particles;
+            activeParticleEffects.push({ particles: particles, age: 0, duration: durationSeconds, type: 'explosion_smoke' });
         }
 
         function createFire(position) {
-            const particleCount = 20;
+            const particleCount = 8;
             const particles = [];
+            const durationSeconds = 1.2;
             for (let i = 0; i < particleCount; i++) {
                 const spriteMaterial = new THREE.SpriteMaterial({
-                    map: fireTexture, color: 0xff9c00, transparent: true, opacity: 0.6, blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
+                    map: fireTexture, color: 0xff9c00, transparent: true, opacity: 0.6,
+                    blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
                 });
                 const sprite = new THREE.Sprite(spriteMaterial);
-                sprite.position.set(position.x, position.y, position.z);
-                sprite.scale.set(3, 3, 1);
+                sprite.position.copy(position);
+                sprite.scale.set(5, 5, 1);
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.acos(2 * Math.random() - 1);
-                const speed = 0.07;
-                const velocity = new THREE.Vector3(
-                    speed * Math.sin(phi) * Math.cos(theta),
-                    speed * Math.cos(phi) * 1.4,
-                    speed * Math.sin(phi) * Math.sin(theta)
-                );
-                sprite.userData.velocity = velocity;
+                const speed = 0.4 + Math.random() * 0.2;
+                const velocity = new THREE.Vector3(speed * Math.sin(phi) * Math.cos(theta), speed * Math.cos(phi) * 1.4, speed * Math.sin(phi) * Math.sin(theta));
+                sprite.userData = { velocity: velocity, initialOpacity: 0.9, initialScale: 5, damping: 0.97 };
                 scene.add(sprite);
                 particles.push(sprite);
             }
-            return particles;
+            activeParticleEffects.push({ particles: particles, age: 0, duration: durationSeconds, type: 'explosion_fire' });
         }
 
-        function animateSmoke(particles, duration) {
-            const startTime = Date.now();
-            const intervalTime = 1000 / desiredFPS; // ~41.67 ms
-            const interval = setInterval(() => {
-                const elapsed = Date.now() - startTime;
-                const progress = elapsed / duration;
-                if (progress >= 1) {
-                    clearInterval(interval);
-                    particles.forEach(particle => scene.remove(particle));
-                    return;
-                }
-                const damping = 0.98;
-                particles.forEach(particle => {
-                    particle.userData.velocity.multiplyScalar(damping);
-                    particle.position.add(particle.userData.velocity);
+        function createGuts(position) {
+            const particleCount = 8;
+            const particles = [];
+            const durationSeconds = 1.2;
+            for (let i = 0; i < particleCount; i++) {
+                const spriteMaterial = new THREE.SpriteMaterial({
+                    map: gutsTexture, color: 0xff0000, transparent: true, opacity: 0.6,
+                    blending: THREE.NormalBlending, depthWrite: false, rotation: Math.random() * Math.PI * 2
                 });
-                const opacity = 0.6 * (1 - progress);
-                particles.forEach(particle => particle.material.opacity = opacity);
-            }, intervalTime);
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.copy(position);
+                sprite.scale.set(5, 5, 1);
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const speed = 0.4 + Math.random() * 0.2;
+                const velocity = new THREE.Vector3(speed * Math.sin(phi) * Math.cos(theta), speed * Math.cos(phi) * 1.4, speed * Math.sin(phi) * Math.sin(theta));
+                sprite.userData = { velocity: velocity, initialOpacity: 0.9, initialScale: 5, damping: 0.97 };
+                scene.add(sprite);
+                particles.push(sprite);
+            }
+            activeParticleEffects.push({ particles: particles, age: 0, duration: durationSeconds, type: 'explosion_fire' });
         }
 
         function createExplosion(position) {
-            const smokeParticles = createSmoke(position);
-            const fireParticles = createFire(position);
-            animateSmoke(smokeParticles, 2000);
-            animateSmoke(fireParticles, 1200);
+            createSmoke(position);
+            createFire(position);
         }
+
+        function createBlood(position) {
+            createGuts(position)
+        }
+
+        // Enemy Variables
+        let enemy = {
+            sprite: null,
+            isAlive: false,
+            isSpawning: false
+        };
+        const ENEMY_SPEED = 5; // Units per second
+        const ENEMY_SPAWN_DELAY = 1000; // ms
+        const ENEMY_RADIUS = 1.5; // For collision, matches half of scale.set(3,3,1)
+        const PROJECTILE_RADIUS = 0.2; // From Rapier collider
+        const CHARACTER_RADIUS = 0.75; // Approximate character radius for collision
+
+        function spawnEnemy() {
+            if (enemy.sprite || enemy.isSpawning || enemy.isAlive) return;
+
+            enemy.isSpawning = true;
+
+            const enemyMaterial = new THREE.SpriteMaterial({
+                map: enemyImageTexture,
+                // color: 0x747474,
+                transparent: true,
+                // depthTest: false, // Optional: if it should render on top of things without z-fighting
+                // depthWrite: false // Optional
+            });
+            const newEnemySprite = new THREE.Sprite(enemyMaterial);
+
+            const spawnX = (Math.random() * 90) - 45; // -45 to 45 (slightly within walls at +/-50)
+            const spawnZ = (Math.random() * 90) - 45; // -45 to 45
+            const spawnY = 3.5; // Sprite height/2 if scale is 7, and base is at 0
+
+            newEnemySprite.position.set(spawnX, spawnY, spawnZ);
+            newEnemySprite.scale.set(4, 7, 1); // Adjust scale as needed
+
+            scene.add(newEnemySprite);
+            enemy.sprite = newEnemySprite;
+            enemy.isAlive = true;
+            enemy.isSpawning = false;
+            console.log("Enemy spawned at:", enemy.sprite.position);
+        }
+
+        function commonEnemyDeathRoutine() {
+            if (!enemy.sprite || !enemy.isAlive) return;
+
+            scene.remove(enemy.sprite);
+            enemy.sprite.material.dispose();
+            enemy.sprite = null;
+            enemy.isAlive = false;
+
+            if (!enemy.isSpawning) {
+                enemy.isSpawning = true;
+                setTimeout(() => {
+                    enemy.isSpawning = false;
+                    spawnEnemy();
+                }, ENEMY_SPAWN_DELAY);
+            }
+        }
+
+        function handleEnemyHit(projectileThatHit) {
+            if (!enemy.isAlive || !enemy.sprite) return;
+            console.log("Projectile hit enemy!");
+            playSound(gutsExplosionAudio)
+            // playSound(rocketCollisionAudio);
+
+            // Create explosion at the projectile's position
+            if (projectileThatHit && projectileThatHit.mesh) {
+                // createExplosion(projectileThatHit.mesh.position.clone()); // Use clone
+                createBlood(projectileThatHit.mesh.position.clone()); // Use clone
+
+            }
+
+            // Mark projectile for removal
+            if (!projectilesToRemove.includes(projectileThatHit)) {
+                projectilesToRemove.push(projectileThatHit);
+            }
+
+            score += 10; // New
+            updateScoreDisplay(); // New
+
+            commonEnemyDeathRoutine();
+        }
+
+        function handleCharacterDamage() {
+            if (!enemy.isAlive || !enemy.sprite) return;
+            console.log("Enemy reached character! Dealing damage.");
+
+            const canvasContainer = document.querySelector('.canvas-container');
+            const overlay = document.createElement('div');
+            overlay.style.position = 'absolute';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.height = '100%';
+            overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.7)'; // Opaque red
+            overlay.style.zIndex = '1000'; // Ensure it's on top
+            overlay.style.pointerEvents = 'none';
+            canvasContainer.appendChild(overlay);
+
+            setTimeout(() => {
+                if (canvasContainer.contains(overlay)) {
+                    canvasContainer.removeChild(overlay);
+                }
+            }, 200); // Flash duration
+
+            deaths += 1; // New
+            updateDeathsDisplay(); // New
+            playSound(wreckedAudio); // Play death/wrecked sound
+
+            commonEnemyDeathRoutine();
+        }
+
 
         // Animation Loop
         function animate(currentTime) {
             requestAnimationFrame(animate);
             const deltaTime = currentTime - lastFrameTime;
             if (deltaTime < frameInterval) {
-                return; // Skip this frame if not enough time has passed
+                return;
             }
-            lastFrameTime = currentTime - (deltaTime % frameInterval); // Adjust for smoother timing
+            lastFrameTime = currentTime - (deltaTime % frameInterval);
+            const simulationDeltaTime = physicsTimeStep;
 
-            // skyMaterial.uniforms.uTime.value += 0.01;
+            // Update particle effects
+            for (let i = activeParticleEffects.length - 1; i >= 0; i--) {
+                const effect = activeParticleEffects[i];
+                effect.age += simulationDeltaTime;
+                if (effect.age >= effect.duration) {
+                    effect.particles.forEach(particle => {
+                        scene.remove(particle);
+                        particle.material.dispose();
+                    });
+                    activeParticleEffects.splice(i, 1);
+                    continue;
+                }
+                const progress = effect.age / effect.duration;
+                effect.particles.forEach(particle => {
+                    particle.userData.velocity.multiplyScalar(Math.pow(particle.userData.damping, simulationDeltaTime));
+                    particle.position.addScaledVector(particle.userData.velocity, simulationDeltaTime);
+                    particle.material.opacity = particle.userData.initialOpacity * (1 - progress);
+                    if (effect.type === 'explosion_smoke' || effect.type === 'explosion_fire' || effect.type === 'trail_smoke') {
+                        const scaleMultiplier = 1 + progress * (effect.type === 'trail_smoke' ? 0.5 : 1.5);
+                        particle.scale.setScalar(particle.userData.initialScale * scaleMultiplier);
+                    }
+                });
+            }
+
+            // skyMaterial.uniforms.uTime.value += simulationDeltaTime * 0.2; // Uncomment if sky animation desired
 
             // Update character rotation and position
             const characterQuaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
             character.quaternion.copy(characterQuaternion);
             const rapierQuat = { x: characterQuaternion.x, y: characterQuaternion.y, z: characterQuaternion.z, w: characterQuaternion.w };
-            characterBody.setRotation(rapierQuat, true);
-            const position = characterBody.translation();
-            character.position.set(position.x, position.y, position.z);
+            if (characterBody) characterBody.setRotation(rapierQuat, true);
 
-            // Movement logic
-            const moveForward = keys.w ? 1 : keys.s ? -1 : 0;
-            const moveRight = keys.d ? 1 : keys.a ? -1 : 0;
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(character.quaternion);
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(character.quaternion);
-            const velocityVec = new THREE.Vector3();
-            if (moveForward !== 0 || moveRight !== 0) {
-                velocityVec.add(forward.multiplyScalar(moveForward));
-                velocityVec.add(right.multiplyScalar(moveRight));
-                velocityVec.normalize().multiplyScalar(moveSpeed);
+            if (characterBody) {
+                const position = characterBody.translation();
+                character.position.set(position.x, position.y, position.z);
+
+                const moveForward = keys.w ? 1 : keys.s ? -1 : 0;
+                const moveRight = keys.d ? 1 : keys.a ? -1 : 0;
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(character.quaternion);
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(character.quaternion);
+                const velocityVec = new THREE.Vector3();
+                if (moveForward !== 0 || moveRight !== 0) {
+                    velocityVec.add(forward.multiplyScalar(moveForward));
+                    velocityVec.add(right.multiplyScalar(moveRight));
+                    velocityVec.normalize().multiplyScalar(moveSpeed);
+                }
+                const currentVel = characterBody.linvel();
+                characterBody.setLinvel({ x: velocityVec.x, y: currentVel.y, z: velocityVec.z }, true);
             }
-            const currentVel = characterBody.linvel();
-            characterBody.setLinvel({ x: velocityVec.x, y: currentVel.y, z: velocityVec.z }, true);
 
 
             // Update camera
             const cameraEuler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
             const cameraQuaternion = new THREE.Quaternion().setFromEuler(cameraEuler);
             camera.quaternion.copy(cameraQuaternion);
-            const offset = new THREE.Vector3(0, 2, 5).applyQuaternion(cameraQuaternion);
+            const offset = new THREE.Vector3(0, 2, 5).applyQuaternion(cameraQuaternion); // Original offset for FPS view
             camera.position.copy(character.position).add(offset);
+
 
             // Update projectiles
             projectiles.forEach(projectile => {
                 const pos = projectile.body.translation();
                 projectile.mesh.position.set(pos.x, pos.y, pos.z);
-                const smokeParticles = createTrailSmoke(projectile.mesh.position);
-                animateSmoke(smokeParticles, 1000);
+                if (projectile.trailSmokeEmitCounter === undefined) projectile.trailSmokeEmitCounter = 0;
+                projectile.trailSmokeEmitCounter++;
+                const emitIntervalFrames = 3;
+                if (projectile.trailSmokeEmitCounter % emitIntervalFrames === 0) {
+                    createTrailSmoke(projectile.mesh.position);
+                }
             });
+
+            // Enemy Logic
+            if (enemy.isAlive && enemy.sprite && characterBody) {
+                // Enemy Movement
+                const enemyPos = enemy.sprite.position;
+                const charPos = characterBody.translation();
+                const targetPosition = new THREE.Vector3(charPos.x, enemyPos.y, charPos.z); // Homing on XZ plane
+
+                const directionToChar = new THREE.Vector3().subVectors(targetPosition, enemyPos);
+                const distanceToTarget = directionToChar.length();
+
+                if (distanceToTarget > 0.1) { // Stop if very close to avoid jitter
+                    directionToChar.normalize();
+                    enemy.sprite.position.addScaledVector(directionToChar, ENEMY_SPEED * simulationDeltaTime);
+                }
+
+                // Enemy-Character Collision
+                const charActualPosVec3 = new THREE.Vector3(charPos.x, charPos.y, charPos.z); // Using actual char Y for 3D distance
+                const distanceToChar3D = enemy.sprite.position.distanceTo(charActualPosVec3);
+                if (distanceToChar3D < (CHARACTER_RADIUS + ENEMY_RADIUS)) { // Adjusted radius check
+                    handleCharacterDamage();
+                }
+            }
+
+            // Projectile-Enemy Collision (after enemy movement, before physics step for this frame)
+            if (enemy.isAlive && enemy.sprite) {
+                projectiles.forEach(projectile => {
+                    if (!projectilesToRemove.includes(projectile) && projectile.mesh && projectile.body) {
+                        const projPos = projectile.mesh.position;
+                        const enemyPos = enemy.sprite.position;
+                        const distance = projPos.distanceTo(enemyPos);
+                        // Adjust ENEMY_RADIUS based on new sprite scale. If width is 4, radius could be 2. Height 7, radius 3.5.
+                        // Taking a slightly more generous collision box for the sprite.
+                        const effectiveEnemyRadius = Math.max(enemy.sprite.scale.x / 2, enemy.sprite.scale.y / 2) * 0.75; // 75% of larger dimension
+
+                        if (distance < (PROJECTILE_RADIUS + effectiveEnemyRadius)) {
+                            handleEnemyHit(projectile);
+                        }
+                    }
+                });
+            }
+
 
             // Step physics world
-            world.step(eventQueue);
-            eventQueue.drainCollisionEvents((handle1, handle2, started) => {
-                const collider1 = world.getCollider(handle1);
-                const collider2 = world.getCollider(handle2);
-                const body1 = collider1.parent();
-                const body2 = collider2.parent();
-                if (body1.userData.type === 'projectile' && started) handleProjectileCollision(body1);
-                else if (body2.userData.type === 'projectile' && started) handleProjectileCollision(body2);
-            });
+            if (world) world.step(eventQueue);
+            if (eventQueue) {
+                eventQueue.drainCollisionEvents((handle1, handle2, started) => {
+                    const collider1 = world.getCollider(handle1);
+                    const collider2 = world.getCollider(handle2);
+                    if (!collider1 || !collider2) return;
+
+                    const body1 = collider1.parent();
+                    const body2 = collider2.parent();
+                    if (!body1 || !body2) return;
+
+                    if (body1.userData && body1.userData.type === 'projectile' && started) handleProjectileCollision(body1);
+                    else if (body2.userData && body2.userData.type === 'projectile' && started) handleProjectileCollision(body2);
+                });
+            }
 
             // Remove marked projectiles
-            projectilesToRemove.forEach(projectile => {
-                scene.remove(projectile.mesh);
-                world.removeRigidBody(projectile.body);
-                projectiles = projectiles.filter(p => p !== projectile);
-            });
-            projectilesToRemove = [];
+            if (projectilesToRemove.length > 0) {
+                projectiles = projectiles.filter(projectile => {
+                    if (projectilesToRemove.includes(projectile)) {
+                        scene.remove(projectile.mesh);
+                        projectile.mesh.geometry.dispose();
+                        if (world && projectile.body) world.removeRigidBody(projectile.body);
+                        return false;
+                    }
+                    return true;
+                });
+                projectilesToRemove = [];
+            }
 
-            // Clean up old projectiles
+
+            // Clean up old projectiles (lifespan)
             const now = Date.now();
             projectiles = projectiles.filter(projectile => {
                 if (now - projectile.creationTime > 3000) {
-                    scene.remove(projectile.mesh);
-                    world.removeRigidBody(projectile.body);
+                    if (!projectilesToRemove.includes(projectile)) {
+                        scene.remove(projectile.mesh);
+                        projectile.mesh.geometry.dispose();
+                        if (world && projectile.body) world.removeRigidBody(projectile.body);
+                    }
                     return false;
                 }
                 return true;
@@ -887,7 +1274,11 @@
         // Start Application
         (async () => {
             await initPhysics();
-            animate();
+            initAudio(); // Initialize audio elements
+            updateScoreDisplay();
+            updateDeathsDisplay();
+            spawnEnemy(); // Initial enemy spawn
+            animate(performance.now()); // Pass initial time to animate
         })();
     </script>
 </body>
